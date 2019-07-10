@@ -1,0 +1,262 @@
+/**********************************************************
+**   SWIFT2C.ATG
+**   Coco/R Swift to C Translator
+**   by Michael Griebling
+**********************************************************/
+
+COMPILER Swift2C
+/* Swift2C translator */
+
+// object kinds
+let variable = 0; let constant = 1; let proc = 2; let scope = 3
+
+public var tab : SymbolTable!
+public var gen : CodeGenerator!
+
+/*--------------------------------------------------------------------------*/
+
+CHARACTERS
+  letter         = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
+  binDigit       = "01" .
+  octDigit       = '0'..'7' .
+  digit          = '0'..'9' .
+  hexDigit       = digit + 'A'..'F' + 'a'..'f' .
+  binDigitRepeat = binDigit + '_' .
+  octDigitRepeat = octDigit + '_' .
+  digitRepeat    = digit + '_' .
+  hexDigitRepeat = hexDigit + '_' .
+  exponent       = 'E' + 'e' .
+  hexExp         = 'P' + 'p' .
+  sign           = "+-" .
+  printable      = '\u0020' .. '\u007e' .
+  cr             = '\r' .
+  lf             = '\n' .
+  ff             = '\f' .
+  tab            = '\t' .
+  vt             = '\v' .
+  stringCh       = ANY - '"' - '\\' - cr - lf .
+  charCh         = ANY - '\'' - '\\' - cr - lf .
+
+TOKENS
+  ident       = (letter | '_') {letter | digit} .
+  hexNumber   = "0x" hexDigit { hexDigitRepeat } '.' hexDigit { hexDigitRepeat } [ hexExp [ sign ] digit { digitRepeat } ] .
+  decNumber   = digit { digitRepeat } '.' digit { digitRepeat } [ exponent [ sign ] digit { digitRepeat } ] .
+  octalInt    = "0o" octDigit { octDigitRepeat } .
+  hexInt      = "0x" hexDigit { hexDigitRepeat } .
+  binInt      = "0b" binDigit { binDigitRepeat } .
+  decInt      = digit { digitRepeat } .
+  string      = '"' { stringCh | '\\' printable } '"' .
+  char        = '\'' ( charCh | '\\' printable { hexDigit } ) '\'' .
+
+COMMENTS FROM "/*" TO "*/" NESTED
+COMMENTS FROM "//" TO lf
+
+IGNORE cr + lf + ff + vt + tab
+
+PRODUCTIONS
+  Swift2C                                
+  =
+    "class" ident                        (. tab.OpenScope() .)
+    '{'
+        { VarDecl [';'] | ProcDecl }
+    '}'                                  (. tab.CloseScope()
+                                            if gen.progStart == -1 { SemErr("main function never defined") }
+                                          .)
+    .
+
+  ProcDecl                              (. var name = ""; var obj: Obj! = nil; var adr: Int .)
+    = "func"
+       ident                            (. name = t.val; obj = tab.NewObj(name, proc, .undef); obj.adr = gen.pc
+                                           if name == "Main" { gen.progStart = gen.pc }
+                                           tab.OpenScope() .)
+      '(' ')'
+                                        (. gen.Emit( .ENTER, 0 ); adr = gen.pc - 2 .)
+         CodeBlock
+                                        (. gen.Emit( .LEAVE ); gen.Emit( .RET )
+                                           gen.Patch(adr, tab.topScope!.nextAdr)
+                                           tab.CloseScope() .)
+        .
+
+  Type<_ type: inout OType>
+    =                                    (. type = .undef .)
+    ( "Int"                              (. type = .integer(0) .)
+    | "Bool"                             (. type = .boolean(false) .)
+    | "Double"                           (. type = .double(0) .)
+    | "String"                           (. type = .string("") .)
+    | "Character"                        (. type = .character("\0") .)
+    | "Any"                              (. type = .any(0) .)
+    ) .
+
+  VarDecl                                (. var obj: Obj! = nil; var name = ""; var type = OType.undef; var kind = variable .)
+    = ("var"
+        |
+       "let"                             (. kind = constant .)
+       )
+      ident                              (. name = t.val .)
+      ':' Type<&type>                    (. obj = tab.NewObj(name, kind, type)
+                                            gen.Emit(obj) .)
+    .
+
+  IfStat
+    =                                    (. var obj: Obj! = nil .)
+    "if"                                 (. gen.Emit("if (") .)
+      Expr<&obj>
+                                         (. gen.Emit(")") .)
+      CodeBlock
+    { "else"
+      ( "if"                             (. gen.Emit("else if (") .)
+         Expr<&obj>
+                                         (. gen.Emit(")") .)
+         CodeBlock
+       |                                 (. gen.Emit("else") .)
+         CodeBlock
+      )
+    }
+    .
+
+  WhileStat
+    =                                    (. var obj: Obj! = nil .)
+    "while"                              (. gen.Emit("while (") .)
+        Expr<&obj>
+                                         (. gen.Emit(")") .)
+        CodeBlock
+    .
+
+  RepeatStat
+    =                                    (. var obj: Obj! = nil .)
+    "repeat"                             (. gen.Emit("do") .)
+        CodeBlock
+    "while"                              (. gen.Emit("while (") .)
+        Expr<&obj>
+                                         (. gen.Emit(")") .)
+    .
+
+  Pattern
+    =                                    (. var obj: Obj! = nil .)
+        Expr<&obj>
+    .
+
+  CaseLabel
+    =
+    (   "case"                           (. gen.Emit("case") .)
+           Pattern
+      | "default"                        (. gen.Emit("default") .)
+    ) ':'                                (. gen.Emit(":") .)
+    .
+
+  SwitchCase
+    =
+    CaseLabel Statements
+    .
+
+  SwitchStat
+    =                                    (. var obj : Obj? = nil .)
+    "switch"                             (. gen.Emit("switch") .)
+        Expr<&obj>
+    '{'                                  (. gen.Emit("{") .)
+        { SwitchCase }
+    '}'                                  (. gen.Emit("}") .)
+    .
+
+  Stat                                   (. var obj2 : Obj!; var obj: Obj! .)
+    =
+      ident                              (. obj = tab.Find(t.val); gen.Emit(obj) .)
+      ( "="                              (. if obj.kind != variable { SemErr("cannot assign to procedure") }
+                                            gen.Emit(" = ")  .)
+        Expr<&obj2>                      (. if obj2.type != obj.type { SemErr("incompatible types") } .)
+     | '(' ')'                           (. if obj.kind != proc { SemErr("object is not a procedure") }
+                                            gen.Emit("()") .)
+      )
+    | IfStat
+    | WhileStat
+    | RepeatStat
+    | SwitchStat
+    | "read" '(' ident ')'               (. 
+                                            if !obj.type.isNumber { SemErr("numeric type expected") }
+                                            gen.Emit( .READ )
+                                            if obj.level == 0 { gen.Emit( .STOG, obj.adr ) }
+                                            else { gen.Emit( .STO, obj.adr ) } .)
+    | "print" '(' Expr<&obj> ')'         (. if !obj.type.isNumber { SemErr("numeric type expected") }
+                                            gen.Emit( .WRITE ) .)
+    | VarDecl
+    .
+
+  Statements =
+    { Stat [';'] }
+    .
+
+  CodeBlock =
+    '{'                                  (. gen.Emit("{") .)
+    Statements
+    '}'                                  (. gen.Emit("}") .)
+    .
+
+  Expr<_ obj: inout Obj!>                (. var obj2: Obj! = nil; var op = Op.UNDEF .)
+    =
+    SimExpr<&obj>
+    [ RelOp<&op>
+      SimExpr<&obj2>                     (. gen.BinExpr(obj, op, obj2) .)
+    ].
+
+  SimExpr<_ obj: inout Obj!>             (. var obj2: Obj! = nil; var op = Op.UNDEF .)
+    =
+    Term<&obj>
+    { AddOp<&op>
+      Term<&obj2>                        (. gen.BinExpr(obj, op, obj2) .)
+    }.
+
+  Term<_ obj: inout Obj!>                (. var obj2: Obj! = nil; var op = Op.UNDEF .)
+  =
+    Factor<&obj>
+    { MulOp<&op>
+      Factor<&obj2>                      (. gen.BinExpr(obj, op, obj2) .)
+    }.
+
+  Factor<_ obj: inout Obj!>
+    =                                    (. obj = nil .)
+    ( ident                              (. obj = tab.Find(t.val); gen.Emit(obj) .)
+    | "true"                             (. obj = gen.BoolCon(true) .)
+    | "false"                            (. obj = gen.BoolCon(false) .)
+    | decInt                             (. obj = gen.IntCon(t.val, 10) .)
+    | binInt                             (. obj = gen.IntCon(t.val, 2) .)
+    | hexInt                             (. obj = gen.IntCon(t.val, 16) .)
+    | octalInt                           (. obj = gen.IntCon(t.val, 8) .)
+    | hexNumber                          (. obj = gen.DoubleCon(t.val, 16) .)
+    | decNumber                          (. obj = gen.DoubleCon(t.val) .)
+    | char                               (. obj = gen.CharCon(t.val) .)
+    | string                             (. obj = gen.StringCon(t.val) .)
+    | "-" Factor<&obj>                   (. obj = gen.UnaryExpr(Op.SUB, obj) .)
+    | "~" Factor<&obj>                   (. obj = gen.UnaryExpr(Op.NOT, obj) .)
+    | "("                                (. obj = nil .)
+         [Expr<&obj>]
+      ")"
+    ).
+
+  MulOp<_ op: inout Op>
+  =                                      (. op = .MUL .)
+    ( "*"
+    | "/"                                (. op = .DIV .)
+    | "%"                                (. op = .REM .)
+    | "&"                                (. op = .AND .)
+    ).
+
+  AddOp<_ op: inout Op>
+  =                                      (. op = .ADD .)
+    ( "+"
+    | "-"                                (. op = .SUB .)
+    | "|"                                (. op = .OR .)
+    ).
+
+  RelOp<_ op: inout Op>
+  =                                      (. op = .EQU .)
+    ( "=="
+    | "<"                                (. op = .LSS .)
+    | ">"                                (. op = .GTR .)
+    | ">="                               (. op = .GTE .)
+    | "<="                               (. op = .LTE .)
+    | "!="                               (. op = .NEQ .)
+    ).
+
+END Swift2C.
+
+
