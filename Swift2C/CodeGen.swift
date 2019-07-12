@@ -15,174 +15,79 @@ public enum Op : Int {
     UNDEF
 }
 
+extension OType : CustomStringConvertible {
+    
+    public var description: String {
+        switch self {
+        case .boolean(_): return "bool"
+        case .integer(_): return "int"
+        case .double(_): return "double"
+        case .string(_): return "char *"
+        case .character(_): return "char"
+        case .any(_): return "void *"
+        case .undef: return "undefined"
+        }
+    }
+}
+
 public class CodeGenerator {
     
-    private static let MEMSIZE = 15000
-    
-    var code = [UInt8](repeating:0, count:CodeGenerator.MEMSIZE)
-    var stack = [Int](repeating:0, count:1000)
-    var globals = [Int](repeating:0, count:1000)
-    var top = 0
-    var bp = 0
-    
-    public var progStart = -1  /* address of first instruction of main program */
-    public var pc = 1          /* program counter */
-    
-    func Next() -> Int {
-        let value = code[pc]; pc += 1
-        return Int(value)
-    }
-    
-    func Next2() -> Int {
-        let x = Next()
-        let y = Next()
-        return x<<8 + y
-    }
-    
-    func int(_ b: Bool) -> Int {
-        return b ? 1 : 0
-    }
-    
-    func Push(_ val: Int) {
-        stack[top] = val; top += 1
-    }
-    
-    func Pop() -> Int {
-        top -= 1
-        return stack[top]
-    }
-    
-    func Up(_ level: Int) -> Int {
-        var b = bp
-        var level = level
-        while level > 0 { b = stack[b]; level -= 1 }
-        return b
-    }
-    
-    public func Put(_ x: Int) {
-        code[pc] = UInt8(x); pc += 1
-    }
+    var ccode = ""             /* output code */
     
     public func Emit(_ op: Op) {
-        Put(op.rawValue)
+        Emit(" ")
+        switch op {
+        case .ADD: Emit("+")
+        case .AND: Emit("&")
+        case .DIV: Emit("/")
+        case .GTE: Emit(">=")
+        case .GTR: Emit(">")
+        case .LSS: Emit("<")
+        case .LTE: Emit("<=")
+        case .NEQ: Emit("!=")
+        case .EQU: Emit("==")
+        default: break
+        }
+        Emit(" ")
     }
     
-    public func Emit(_ op: Op, _ val: Int) {
-        Emit(op); Put(val>>8); Put(val & 0xFF)
+    public func Emit(_ o1: Obj, _ op: Op, _ o2: Obj) {
+        Emit(o1); Emit(op); Emit(o2)
+    }
+    
+    public func Emit(_ op: Op, _ o: Obj) {
+        Emit(op); Emit(o)
     }
     
     public func Emit(_ s: String) {
+        print(s, separator:"", to:&ccode)
+    }
+    
+    public func Ln() {
+        print("", to:&ccode)
+    }
+    
+    public func Emit(value v: OType) {
+        switch v {
+        case .boolean(let b): Emit("\(b)")
+        case .integer(let i): Emit("\(i)")
+        case .double(let x): Emit("\(x)")
+        case .string(let s): Emit("\"\(s)\"")
+        case .character(let c): Emit("\"\(c)\"")
+        default: break
+        }
+    }
+    
+    public func Emit(type v: OType) {
+        Emit("\(v.description) ")
     }
     
     public func Emit(_ o: Obj) {
-    }
-    
-    public func BinExpr(_ e: Obj, _ op: Op, _ e2: Obj) {
-    }
-    
-    public func UnaryExpr(_ op: Op, _ e: Obj) -> Obj {
-        return Obj()
-    }
-    
-    public func BoolCon(_ b: Bool) -> Obj {
-        return Obj()
-    }
-    
-    public func CharCon(_ c: String) -> Obj {
-        return Obj()
-    }
-    
-    public func StringCon(_ c: String) -> Obj {
-        return Obj()
-    }
-    
-    public func IntCon(_ i: String, _ base: Int = 10) -> Obj {
-        return Obj()
-    }
-    
-    public func DoubleCon(_ x: String, _ base: Int = 10) -> Obj {
-        return Obj()
-    }
-    
-    public func Patch( _ adr: Int, _ val: Int) {
-        code[adr] = UInt8(val>>8); code[adr+1] = UInt8(val & 0xFF)
-    }
-    
-    public func Decode() {
-        let maxPc = pc
-        pc = 1
-        while pc < maxPc {
-            let code = Op(rawValue: Next())!
-            print(String(format: "%3d: \(code) ", pc-1), terminator: "")
-            switch code {
-            case .LOAD, .LOADG, .CONST, .STO, .STOG, .CALL, .ENTER, .JMP, .FJMP:
-                print(Next2())
-            case .ADD, .SUB, .MUL, .AND, .OR, .DIV, .NEG, .NOT, .REM, .EQU, .LTE, .GTE, .NEQ, .LSS, .GTR, .RET, .LEAVE, .READ, .WRITE:
-                print()
-            case .UNDEF:
-                print(" <- ERROR!")
-            }
-        }
-    }
-    
-    private func ReadInt(_ s: InputStream) -> Int {
-        var ch : Character
-        var sign : Int
-        
-        func readByte() -> Character {
-            var buf = [UInt8](repeating:0, count:2)
-            if s.hasBytesAvailable {
-                let len = s.read(&buf, maxLength: 1)
-                if len == 1 { return Character(Int(buf[0])) }
-            }
-            return Character("\0")
-        }
-        
-        repeat { ch = readByte() } while !(ch >= "0" && ch <= "9" || ch == "-")
-        if ch == "-" { sign = -1; ch = readByte() } else { sign = 1 }
-        var n = 0
-        while ch >= "0" && ch <= "9" {
-            n = 10 * n + (ch - "0")
-            ch = readByte()
-        }
-        return n * sign
-    }
-    
-    public func Interpret(_ data: String) {
-        var val : Int
-
-        if let s = InputStream(fileAtPath: data) {
-            s.open()
-            print()
-            pc = progStart; stack[0] = 0; top = 1; bp = 0
-            while true {
-                switch Op(rawValue: Next())! {
-                case .CONST: Push(Next2())
-                case .LOAD:  Push(stack[bp+Next2()])
-                case .LOADG: Push(globals[Next2()])
-                case .STO:   stack[bp+Next2()] = Pop()
-                case .STOG:  globals[Next2()] = Pop()
-                case .ADD:   Push(Pop()+Pop())
-                case .SUB:   Push(-Pop()+Pop())
-                case .DIV:   val = Pop(); Push(Pop()/val)
-                case .MUL:   Push(Pop()*Pop())
-                case .NEG:   Push(-Pop())
-                case .EQU:   Push(int(Pop()==Pop()))
-                case .LSS:   Push(int(Pop()>Pop()))
-                case .GTR:   Push(int(Pop()<Pop()))
-                case .JMP:   pc = Next2()
-                case .FJMP:  val = Next2(); if Pop() == 0 { pc = val }
-                case .READ:  val = ReadInt(s); Push(val)
-                case .WRITE: print(Pop())
-                case .CALL:  Push(pc+2); pc = Next2()
-                case .RET:   pc = Pop(); if pc == 0 { return }
-                case .ENTER: Push(bp); bp = top; top = top + Next2()
-                case .LEAVE: top = bp; bp = Pop()
-                default: assertionFailure("illegal opcode")
-                }
-            }
-        } else {
-            print("--- Error accessing file \(data)")
+        switch o.kind {
+        case .constant: Emit(value: o.type)
+        case .proc: Emit(o.name)
+        case .variable: Emit(type: o.type); Emit(o.name)
+        default: break
         }
     }
 

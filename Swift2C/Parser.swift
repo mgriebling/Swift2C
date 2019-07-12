@@ -61,11 +61,9 @@ public class Parser {
 	public let _case = 30
 	public let _default = 31
 	public let _switch = 32
-	public let _read = 34
-	public let _print = 35
-	public let _true = 36
-	public let _false = 37
-	public let maxT = 52
+	public let _true = 34
+	public let _false = 35
+	public let maxT = 50
 
 	static let _T = true
 	static let _x = false
@@ -79,10 +77,24 @@ public class Parser {
 	public var la: Token            // lookahead token
 	var errDist = Parser.minErrDist
 
-	let variable = 0; let constant = 1; let proc = 2; let scope = 3
-	
 	public var tab : SymbolTable!
 	public var gen : CodeGenerator!
+	
+	func evalConstants(_ obj: Obj, _ op: Op, _ obj2: Obj) -> Obj {
+	    if obj.kind == .constant && obj2.kind == .constant {
+	        return tab.BinExpr(obj, op, obj2)
+	    } else {
+	        gen.Emit(obj, op, obj2); return obj
+	    }
+	}
+	
+	func evalConstants(_ op: Op, _ obj: Obj) -> Obj {
+	    if obj.kind == .constant {
+	        return tab.UnaryExpr(op, obj)
+	    } else {
+	        gen.Emit(op, obj); return obj
+	    }
+	}
 	
 	/*--------------------------------------------------------------------------*/
 	
@@ -164,18 +176,18 @@ public class Parser {
 		}
 		Expect(13 /* "}" */)
 		tab.CloseScope()
-		if gen.progStart == -1 { SemErr("main function never defined") }
+		/* if gen.progStart == -1 { SemErr("main function never defined") } */
 		
 	}
 
 	func VarDecl() {
-		var obj: Obj! = nil; var name = ""; var type = OType.undef; var kind = variable 
+		var obj: Obj! = nil; var name = ""; var type = OType.undef; var kind = OKind.variable 
 		if la.kind == _var {
 			Get()
 		} else if la.kind == _let {
 			Get()
-			kind = constant 
-		} else { SynErr(53) }
+			kind = .constant 
+		} else { SynErr(51) }
 		Expect(_ident)
 		name = t.val 
 		Expect(25 /* ":" */)
@@ -185,19 +197,17 @@ public class Parser {
 	}
 
 	func ProcDecl() {
-		var name = ""; var obj: Obj! = nil; var adr: Int 
+		var name = "" 
 		Expect(_func)
 		Expect(_ident)
-		name = t.val; obj = tab.NewObj(name, proc, .undef); obj.adr = gen.pc
-		if name == "Main" { gen.progStart = gen.pc }
+		name = t.val; _ = tab.NewObj(name, .proc, .undef)
+		if name == "Main" { /* TBD */ }
 		tab.OpenScope() 
 		Expect(15 /* "(" */)
 		Expect(16 /* ")" */)
-		gen.Emit( .ENTER, 0 ); adr = gen.pc - 2 
+		
 		CodeBlock()
-		gen.Emit( .LEAVE ); gen.Emit( .RET )
-		gen.Patch(adr, tab.topScope!.nextAdr)
-		tab.CloseScope() 
+		
 	}
 
 	func CodeBlock() {
@@ -229,7 +239,7 @@ public class Parser {
 		case _Any: 
 			Get()
 			type = .any(0) 
-		default: SynErr(54)
+		default: SynErr(52)
 		}
 	}
 
@@ -251,7 +261,7 @@ public class Parser {
 			} else if la.kind == 11 /* "{" */ {
 				gen.Emit("else") 
 				CodeBlock()
-			} else { SynErr(55) }
+			} else { SynErr(53) }
 		}
 	}
 
@@ -261,7 +271,7 @@ public class Parser {
 		if StartOf(1) {
 			RelOp(&op)
 			SimExpr(&obj2)
-			gen.BinExpr(obj, op, obj2) 
+			obj = evalConstants(obj, op, obj2) 
 		}
 	}
 
@@ -298,7 +308,7 @@ public class Parser {
 		} else if la.kind == _default {
 			Get()
 			gen.Emit("default") 
-		} else { SynErr(56) }
+		} else { SynErr(54) }
 		Expect(25 /* ":" */)
 		gen.Emit(":") 
 	}
@@ -339,16 +349,16 @@ public class Parser {
 			obj = tab.Find(t.val); gen.Emit(obj) 
 			if la.kind == 33 /* "=" */ {
 				Get()
-				if obj.kind != variable { SemErr("cannot assign to procedure") }
+				if obj.kind != .variable { SemErr("cannot assign to procedure") }
 				gen.Emit(" = ")  
 				Expr(&obj2)
 				if obj2.type != obj.type { SemErr("incompatible types") } 
 			} else if la.kind == 15 /* "(" */ {
 				Get()
 				Expect(16 /* ")" */)
-				if obj.kind != proc { SemErr("object is not a procedure") }
+				if obj.kind != .proc { SemErr("object is not a procedure") }
 				gen.Emit("()") 
-			} else { SynErr(57) }
+			} else { SynErr(55) }
 		case _if: 
 			IfStat()
 		case _while: 
@@ -357,59 +367,43 @@ public class Parser {
 			RepeatStat()
 		case _switch: 
 			SwitchStat()
-		case _read: 
-			Get()
-			Expect(15 /* "(" */)
-			Expect(_ident)
-			Expect(16 /* ")" */)
-			if !obj.type.isNumber { SemErr("numeric type expected") }
-			gen.Emit( .READ )
-			if obj.level == 0 { gen.Emit( .STOG, obj.adr ) }
-			else { gen.Emit( .STO, obj.adr ) } 
-		case _print: 
-			Get()
-			Expect(15 /* "(" */)
-			Expr(&obj)
-			Expect(16 /* ")" */)
-			if !obj.type.isNumber { SemErr("numeric type expected") }
-			gen.Emit( .WRITE ) 
 		case _var, _let: 
 			VarDecl()
-		default: SynErr(58)
+		default: SynErr(56)
 		}
 	}
 
 	func SimExpr(_ obj: inout Obj!) {
 		var obj2: Obj! = nil; var op = Op.UNDEF 
 		Term(&obj)
-		while la.kind == 38 /* "-" */ || la.kind == 44 /* "+" */ || la.kind == 45 /* "|" */ {
+		while la.kind == 36 /* "-" */ || la.kind == 42 /* "+" */ || la.kind == 43 /* "|" */ {
 			AddOp(&op)
 			Term(&obj2)
-			gen.BinExpr(obj, op, obj2) 
+			obj = evalConstants(obj, op, obj2) 
 		}
 	}
 
 	func RelOp(_ op: inout Op) {
 		op = .EQU 
 		switch la.kind {
-		case 46 /* "==" */: 
+		case 44 /* "==" */: 
 			Get()
-		case 47 /* "<" */: 
+		case 45 /* "<" */: 
 			Get()
 			op = .LSS 
-		case 48 /* ">" */: 
+		case 46 /* ">" */: 
 			Get()
 			op = .GTR 
-		case 49 /* ">=" */: 
+		case 47 /* ">=" */: 
 			Get()
 			op = .GTE 
-		case 50 /* "<=" */: 
+		case 48 /* "<=" */: 
 			Get()
 			op = .LTE 
-		case 51 /* "!=" */: 
+		case 49 /* "!=" */: 
 			Get()
 			op = .NEQ 
-		default: SynErr(59)
+		default: SynErr(57)
 		}
 	}
 
@@ -419,21 +413,21 @@ public class Parser {
 		while StartOf(3) {
 			MulOp(&op)
 			Factor(&obj2)
-			gen.BinExpr(obj, op, obj2) 
+			obj = evalConstants(obj, op, obj2) 
 		}
 	}
 
 	func AddOp(_ op: inout Op) {
 		op = .ADD 
-		if la.kind == 44 /* "+" */ {
+		if la.kind == 42 /* "+" */ {
 			Get()
-		} else if la.kind == 38 /* "-" */ {
+		} else if la.kind == 36 /* "-" */ {
 			Get()
 			op = .SUB 
-		} else if la.kind == 45 /* "|" */ {
+		} else if la.kind == 43 /* "|" */ {
 			Get()
 			op = .OR 
-		} else { SynErr(60) }
+		} else { SynErr(58) }
 	}
 
 	func Factor(_ obj: inout Obj!) {
@@ -441,45 +435,45 @@ public class Parser {
 		switch la.kind {
 		case _ident: 
 			Get()
-			obj = tab.Find(t.val); gen.Emit(obj) 
+			obj = tab.Find(t.val) 
 		case _true: 
 			Get()
-			obj = gen.BoolCon(true) 
+			obj = tab.BoolCon(true) 
 		case _false: 
 			Get()
-			obj = gen.BoolCon(false) 
+			obj = tab.BoolCon(false) 
 		case _decInt: 
 			Get()
-			obj = gen.IntCon(t.val, 10) 
+			obj = tab.IntCon(t.val, 10) 
 		case _binInt: 
 			Get()
-			obj = gen.IntCon(t.val, 2) 
+			obj = tab.IntCon(t.val, 2) 
 		case _hexInt: 
 			Get()
-			obj = gen.IntCon(t.val, 16) 
+			obj = tab.IntCon(t.val, 16) 
 		case _octalInt: 
 			Get()
-			obj = gen.IntCon(t.val, 8) 
+			obj = tab.IntCon(t.val, 8) 
 		case _hexNumber: 
 			Get()
-			obj = gen.DoubleCon(t.val, 16) 
+			obj = tab.DoubleCon(t.val, 16) 
 		case _decNumber: 
 			Get()
-			obj = gen.DoubleCon(t.val) 
+			obj = tab.DoubleCon(t.val) 
 		case _char: 
 			Get()
-			obj = gen.CharCon(t.val) 
+			obj = tab.CharCon(t.val) 
 		case _string: 
 			Get()
-			obj = gen.StringCon(t.val) 
-		case 38 /* "-" */: 
+			obj = tab.StringCon(t.val) 
+		case 36 /* "-" */: 
 			Get()
 			Factor(&obj)
-			obj = gen.UnaryExpr(Op.SUB, obj) 
-		case 39 /* "~" */: 
+			obj = evalConstants( .NEG, obj) 
+		case 37 /* "!" */: 
 			Get()
 			Factor(&obj)
-			obj = gen.UnaryExpr(Op.NOT, obj) 
+			obj = evalConstants( .NOT, obj) 
 		case 15 /* "(" */: 
 			Get()
 			obj = nil 
@@ -487,24 +481,24 @@ public class Parser {
 				Expr(&obj)
 			}
 			Expect(16 /* ")" */)
-		default: SynErr(61)
+		default: SynErr(59)
 		}
 	}
 
 	func MulOp(_ op: inout Op) {
 		op = .MUL 
-		if la.kind == 40 /* "*" */ {
+		if la.kind == 38 /* "*" */ {
 			Get()
-		} else if la.kind == 41 /* "/" */ {
+		} else if la.kind == 39 /* "/" */ {
 			Get()
 			op = .DIV 
-		} else if la.kind == 42 /* "%" */ {
+		} else if la.kind == 40 /* "%" */ {
 			Get()
 			op = .REM 
-		} else if la.kind == 43 /* "&" */ {
+		} else if la.kind == 41 /* "&" */ {
 			Get()
 			op = .AND 
-		} else { SynErr(62) }
+		} else { SynErr(60) }
 	}
 
 
@@ -520,11 +514,11 @@ public class Parser {
 
     func set (_ x: Int, _ y: Int) -> Bool { return Parser._set[x][y] }
     static let _set: [[Bool]] = [
-		[_T,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x],
-		[_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_T, _T,_T,_T,_T, _x,_x],
-		[_x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _T,_x,_T,_x, _T,_T,_x,_x, _T,_x,_T,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x],
-		[_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _T,_T,_T,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x],
-		[_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x,_x, _x,_x,_x,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _T,_T,_T,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x]
+		[_T,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x],
+		[_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _T,_T,_T,_T, _T,_T,_x,_x],
+		[_x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _T,_x,_T,_x, _T,_T,_x,_x, _T,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x],
+		[_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_T, _T,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x],
+		[_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x,_x, _x,_x,_x,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_T, _T,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x]
 
 	]
 } // end Parser
@@ -579,35 +573,33 @@ public class Errors {
 		case 31: s = "\"default\" expected"
 		case 32: s = "\"switch\" expected"
 		case 33: s = "\"=\" expected"
-		case 34: s = "\"read\" expected"
-		case 35: s = "\"print\" expected"
-		case 36: s = "\"true\" expected"
-		case 37: s = "\"false\" expected"
-		case 38: s = "\"-\" expected"
-		case 39: s = "\"~\" expected"
-		case 40: s = "\"*\" expected"
-		case 41: s = "\"/\" expected"
-		case 42: s = "\"%\" expected"
-		case 43: s = "\"&\" expected"
-		case 44: s = "\"+\" expected"
-		case 45: s = "\"|\" expected"
-		case 46: s = "\"==\" expected"
-		case 47: s = "\"<\" expected"
-		case 48: s = "\">\" expected"
-		case 49: s = "\">=\" expected"
-		case 50: s = "\"<=\" expected"
-		case 51: s = "\"!=\" expected"
-		case 52: s = "??? expected"
-		case 53: s = "invalid VarDecl"
-		case 54: s = "invalid Type"
-		case 55: s = "invalid IfStat"
-		case 56: s = "invalid CaseLabel"
-		case 57: s = "invalid Stat"
-		case 58: s = "invalid Stat"
-		case 59: s = "invalid RelOp"
-		case 60: s = "invalid AddOp"
-		case 61: s = "invalid Factor"
-		case 62: s = "invalid MulOp"
+		case 34: s = "\"true\" expected"
+		case 35: s = "\"false\" expected"
+		case 36: s = "\"-\" expected"
+		case 37: s = "\"!\" expected"
+		case 38: s = "\"*\" expected"
+		case 39: s = "\"/\" expected"
+		case 40: s = "\"%\" expected"
+		case 41: s = "\"&\" expected"
+		case 42: s = "\"+\" expected"
+		case 43: s = "\"|\" expected"
+		case 44: s = "\"==\" expected"
+		case 45: s = "\"<\" expected"
+		case 46: s = "\">\" expected"
+		case 47: s = "\">=\" expected"
+		case 48: s = "\"<=\" expected"
+		case 49: s = "\"!=\" expected"
+		case 50: s = "??? expected"
+		case 51: s = "invalid VarDecl"
+		case 52: s = "invalid Type"
+		case 53: s = "invalid IfStat"
+		case 54: s = "invalid CaseLabel"
+		case 55: s = "invalid Stat"
+		case 56: s = "invalid Stat"
+		case 57: s = "invalid RelOp"
+		case 58: s = "invalid AddOp"
+		case 59: s = "invalid Factor"
+		case 60: s = "invalid MulOp"
 
         default: s = "error \(n)"
         }

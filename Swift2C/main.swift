@@ -28,7 +28,7 @@ if inputs.count < 2 {
         print("Compilation with Errors")
     } else {
         print("Parsed correctly")
-        parser.gen.Decode()
+//        parser.gen.Decode()
 //        parser.gen.Interpret("Taste.IN")
     }
 }

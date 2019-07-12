@@ -228,8 +228,8 @@ public class UTF8Buffer: Buffer {
 public class Scanner {
 	let EOL : Character = "\n"
 	let eofSym = 0 /* pdt */
-	let maxT = 52
-	let noSym = 52
+	let maxT = 50
+	let noSym = 50
 
 
 	var buffer: Buffer?			// scanner buffer
@@ -256,18 +256,17 @@ public class Scanner {
 		result[40] = 31
 		result[41] = 32
 		result[58] = 33
-		result[61] = 47
+		result[61] = 45
 		result[45] = 34
-		result[126] = 35
-		result[42] = 36
-		result[47] = 37
-		result[37] = 38
-		result[38] = 39
-		result[43] = 40
-		result[124] = 41
-		result[60] = 48
-		result[62] = 49
-		result[33] = 45
+		result[33] = 46
+		result[42] = 35
+		result[47] = 36
+		result[37] = 37
+		result[38] = 38
+		result[43] = 39
+		result[124] = 40
+		result[60] = 47
+		result[62] = 48
 		result[Buffer.EOF] = -1
 
 		return result
@@ -409,10 +408,8 @@ public class Scanner {
 			case "case": t.kind = 30
 			case "default": t.kind = 31
 			case "switch": t.kind = 32
-			case "read": t.kind = 34
-			case "print": t.kind = 35
-			case "true": t.kind = 36
-			case "false": t.kind = 37
+			case "true": t.kind = 34
+			case "false": t.kind = 35
 			default: break
 		}
 	}
@@ -555,44 +552,43 @@ public class Scanner {
 			case 33:
 				 t.kind = 25; break loop 
 			case 34:
-				 t.kind = 38; break loop 
+				 t.kind = 36; break loop 
 			case 35:
-				 t.kind = 39; break loop 
+				 t.kind = 38; break loop 
 			case 36:
-				 t.kind = 40; break loop 
+				 t.kind = 39; break loop 
 			case 37:
-				 t.kind = 41; break loop 
+				 t.kind = 40; break loop 
 			case 38:
-				 t.kind = 42; break loop 
+				 t.kind = 41; break loop 
 			case 39:
-				 t.kind = 43; break loop 
+				 t.kind = 42; break loop 
 			case 40:
-				 t.kind = 44; break loop 
+				 t.kind = 43; break loop 
 			case 41:
-				 t.kind = 45; break loop 
+				 t.kind = 44; break loop 
 			case 42:
-				 t.kind = 46; break loop 
+				 t.kind = 47; break loop 
 			case 43:
-				 t.kind = 49; break loop 
+				 t.kind = 48; break loop 
 			case 44:
-				 t.kind = 50; break loop 
+				 t.kind = 49; break loop 
 			case 45:
-				if ch == "=" { AddCh(); state = 46 }
-				else { state = 0 }
-			case 46:
-				 t.kind = 51; break loop 
-			case 47:
 				recEnd = pos; recKind = 33
-				if ch == "=" { AddCh(); state = 42 }
+				if ch == "=" { AddCh(); state = 41 }
 				else { t.kind = 33; break loop }
-			case 48:
-				recEnd = pos; recKind = 47
+			case 46:
+				recEnd = pos; recKind = 37
 				if ch == "=" { AddCh(); state = 44 }
-				else { t.kind = 47; break loop }
-			case 49:
-				recEnd = pos; recKind = 48
+				else { t.kind = 37; break loop }
+			case 47:
+				recEnd = pos; recKind = 45
 				if ch == "=" { AddCh(); state = 43 }
-				else { t.kind = 48; break loop }
+				else { t.kind = 45; break loop }
+			case 48:
+				recEnd = pos; recKind = 46
+				if ch == "=" { AddCh(); state = 42 }
+				else { t.kind = 46; break loop }
 
 			default: break loop
 			}

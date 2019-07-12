@@ -14,7 +14,7 @@ public class Obj {
     var type : OType = .undef /* type of the object (undef for procs) */
     var next : Obj? = nil    /* to next object in same scope */
     
-    var kind = 0
+    var kind = OKind.variable
     var adr  = 0             /* address in memory or start of proc */
     var level = 0            /* nesting level of declaration */
     
@@ -57,11 +57,16 @@ public enum OType: Equatable {
     }
 }
 
-public class SymbolTable {
-    
+public enum OKind: Int {
     // object kinds
-    let variable = 0; let constant = 1; let proc = 2; let scope = 3
-    
+    case variable = 0,
+    constant = 1,
+    proc = 2,
+    scope = 3
+}
+
+public class SymbolTable {
+
     var undefObj = Obj()        /* object node for erroneous symbols */
     var curLevel = -1           /* nesting level of current scope */
     var topScope : Obj? = nil   /* topmost procedure scope */
@@ -70,12 +75,12 @@ public class SymbolTable {
     
     public init (_ parser: Parser) {
         self.parser = parser
-        undefObj.name = "undef"; undefObj.type = .undef; undefObj.kind = variable
+        undefObj.name = "undef"; undefObj.type = .undef; undefObj.kind = .variable
     }
     
     public func OpenScope() {
         let scop = Obj()
-        scop.name = ""; scop.kind = scope
+        scop.name = ""; scop.kind = .scope
         scop.next = topScope; topScope = scop
         curLevel += 1
     }
@@ -85,7 +90,7 @@ public class SymbolTable {
         curLevel -= 1
     }
     
-    public func NewObj (_ name: String, _ kind: Int, _ type: OType) -> Obj {
+    public func NewObj (_ name: String, _ kind: OKind, _ type: OType) -> Obj {
         let obj = Obj()
         var last : Obj?
         obj.name = name; obj.type = type; obj.kind = kind
@@ -98,11 +103,60 @@ public class SymbolTable {
         }
         if last == nil { topScope?.locals = obj }
         else { last?.next = obj }
-        if kind == variable {
+        if kind == .variable {
             obj.adr = topScope!.nextAdr
             topScope!.nextAdr += 1
         }
         return obj
+    }
+    
+    public func BoolCon(_ b: Bool) -> Obj {
+        return NewObj("", .constant, .boolean(b))
+    }
+    
+    public func CharCon(_ c: String) -> Obj {
+        let char = c.first ?? "\0"
+        return NewObj("", .constant, .character(char))
+    }
+    
+    public func StringCon(_ c: String) -> Obj {
+        return NewObj("", .constant, .string(c))
+    }
+    
+    public func IntCon(_ i: String, _ base: Int = 10) -> Obj {
+        let num = Int(i, radix: base) ?? 0
+        return NewObj("", .constant, .integer(num))
+    }
+    
+    public func DoubleCon(_ x: String, _ base: Int = 10) -> Obj {
+        let num = Double(x) ?? 0  // handles both base 10 and 16 conversions
+        return NewObj("", .constant, .double(num))
+    }
+    
+    public func BinExpr(_ e: Obj, _ op: Op, _ e2: Obj) -> Obj {
+        if e.kind == .constant && e2.kind == .constant {
+            // simplify constant expressions
+        }
+        return e
+    }
+    
+    public func UnaryExpr(_ op: Op, _ e: Obj) -> Obj {
+        if e.kind == .constant {
+            // simplify the constant expression and return the result
+            if op == .NEG {
+                switch e.type {
+                case .integer(let x): return NewObj("", .constant, .integer(-x))
+                case .double(let x): return NewObj("", .constant, .double(-x))
+                default: break
+                }
+            } else if op == .NOT {
+                switch e.type {
+                case .boolean(let x): return NewObj("", .constant, .boolean(!x))
+                default: break
+                }
+            }
+        }
+        return e   // illegal Op, just return the argument
     }
     
     public func Find(_ name: String) -> Obj {
