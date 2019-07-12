@@ -38,8 +38,7 @@ public enum OType: Equatable {
     
     public var isNumber: Bool {
         switch self {
-        case .integer(_): return true
-        case .double(_): return true
+        case .integer(_), .double(_): return true
         default: return false
         }
     }
@@ -78,9 +77,9 @@ public class SymbolTable {
         undefObj.name = "undef"; undefObj.type = .undef; undefObj.kind = .variable
     }
     
-    public func OpenScope() {
+    public func OpenScope(_ name: String) {
         let scop = Obj()
-        scop.name = ""; scop.kind = .scope
+        scop.name = name; scop.kind = .scope
         scop.next = topScope; topScope = scop
         curLevel += 1
     }

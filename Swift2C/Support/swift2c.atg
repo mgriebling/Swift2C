@@ -67,23 +67,27 @@ COMMENTS FROM "//" TO lf
 IGNORE cr + lf + ff + vt + tab
 
 PRODUCTIONS
-  Swift2C                                
+  Swift2C                                (. var name = "" .)
   =
-    "class" ident                        (. tab.OpenScope() .)
+    "class" ident                        (. name = t.val; tab.OpenScope(name); gen.Emit("#include \"\(name).h\""); gen.Ln() .)
     '{'
-        { VarDecl [';'] | ProcDecl }
-    '}'                                  (. tab.CloseScope()
+        { VarDecl                        (. gen.Ln() .)
+            [';'] |
+          ProcDecl                       (. gen.Ln() .)
+        }
+    '}'                                  (. tab.CloseScope(); gen.Ln()
                                             /* if gen.progStart == -1 { SemErr("main function never defined") } */
                                           .)
     .
 
-  ProcDecl                              (. var name = "" .)
+  ProcDecl                              (. var name = ""; var mod = "" .)
     = "func"
        ident                            (. name = t.val; _ = tab.NewObj(name, .proc, .undef)
                                            if name == "Main" { /* TBD */ }
-                                           tab.OpenScope() .)
-      '(' ')'
-                                        (. .)
+                                           mod = tab.topScope?.name ?? ""
+                                           tab.OpenScope(name)
+                                           gen.Emit("func \(mod)_\(name)").)
+      '(' ')'                           (. gen.Emit("(void)") .)
          CodeBlock
                                         (. .)
         .
@@ -101,11 +105,11 @@ PRODUCTIONS
   VarDecl                                (. var obj: Obj! = nil; var name = ""; var type = OType.undef; var kind = OKind.variable .)
     = ("var"
         |
-       "let"                             (. kind = .constant .)
+       "let"                             (. kind = .constant; gen.Emit("const ") .)
        )
       ident                              (. name = t.val .)
       ':' Type<&type>                    (. obj = tab.NewObj(name, kind, type)
-                                            gen.Emit(obj) .)
+                                            gen.Emit(type: obj.type); gen.Emit(obj); gen.Emit(";"); gen.Ln() .)
     .
 
   IfStat
@@ -164,7 +168,7 @@ PRODUCTIONS
     =                                    (. var obj : Obj? = nil .)
     "switch"                             (. gen.Emit("switch") .)
         Expr<&obj>
-    '{'                                  (. gen.Emit("{") .)
+    '{'                                  (. gen.Emit(" {") .)
         { SwitchCase }
     '}'                                  (. gen.Emit("}") .)
     .
@@ -174,7 +178,8 @@ PRODUCTIONS
       ident                              (. obj = tab.Find(t.val); gen.Emit(obj) .)
       ( "="                              (. if obj.kind != .variable { SemErr("cannot assign to procedure") }
                                             gen.Emit(" = ")  .)
-        Expr<&obj2>                      (. if obj2.type != obj.type { SemErr("incompatible types") } .)
+        Expr<&obj2>                      (. if obj2.type != obj.type { SemErr("incompatible types") }
+                                            gen.Emit(obj2); gen.Emit(";"); gen.Ln() .)
      | '(' ')'                           (. if obj.kind != .proc { SemErr("object is not a procedure") }
                                             gen.Emit("()") .)
       )
@@ -190,9 +195,9 @@ PRODUCTIONS
     .
 
   CodeBlock =
-    '{'                                  (. gen.Emit("{") .)
+    '{'                                  (. gen.Emit(" {"); gen.Ln() .)
     Statements
-    '}'                                  (. gen.Emit("}") .)
+    '}'                                  (. gen.Emit("}"); gen.Ln() .)
     .
 
   Expr<_ obj: inout Obj!>                (. var obj2: Obj! = nil; var op = Op.UNDEF .)

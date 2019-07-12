@@ -60,11 +60,11 @@ public class CodeGenerator {
     }
     
     public func Emit(_ s: String) {
-        print(s, separator:"", to:&ccode)
+        print(s, terminator:"") // print(s, terminator:"", to:&ccode)
     }
     
     public func Ln() {
-        print("", to:&ccode)
+        print("")  // print("", to:&ccode)
     }
     
     public func Emit(value v: OType) {
@@ -79,14 +79,14 @@ public class CodeGenerator {
     }
     
     public func Emit(type v: OType) {
-        Emit("\(v.description) ")
+        Emit("\(v) ")
     }
     
     public func Emit(_ o: Obj) {
         switch o.kind {
         case .constant: Emit(value: o.type)
         case .proc: Emit(o.name)
-        case .variable: Emit(type: o.type); Emit(o.name)
+        case .variable: Emit(o.name)
         default: break
         }
     }

@@ -8,23 +8,23 @@ class Test {
 	
 	func Foo() {
         var a: Int; var b: Int; var max: Int
-        read(a); read(b)
+//        read(a); read(b)
         if a > b { max = a } else { max = b }
-		print(max)
+//		print(max)
 	}
 
 	func SumUp() {
         var sum: Int
 		sum = 0
         while i > 0 { sum = sum + i; i = i - 1 }
-		print(sum)
+//		print(sum)
 	}
 
 	func Main() {
-		read(i)
+//		read(i)
         while i > 0 {
 			SumUp()
-			read(i)
+//			read(i)
         }
 	}
 }
